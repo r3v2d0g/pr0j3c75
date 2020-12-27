@@ -13,7 +13,7 @@
 use super::{TTL, ROOT_INO};
 use fuser::{FileAttr, FileType, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry};
 use libc::ENOENT;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::time::UNIX_EPOCH;
 
@@ -21,8 +21,8 @@ use std::time::UNIX_EPOCH;
  * │                                           const                                            │ *
 \* └────────────────────────────────────────────────────────────────────────────────────────────┘ */
 
-pub const INO: u64 = 1 << 63;
-pub const STR: &str = "by-name";
+pub const INO: u64 = 1 << 62;
+pub const STR: &str = "projects";
 
 /* ┌────────────────────────────────────────────────────────────────────────────────────────────┐ *\
  * │                                          Projects                                          │ *
@@ -31,7 +31,7 @@ pub const STR: &str = "by-name";
 pub struct Projects {
     ino: u64,
     by_name: HashMap<String, u64>,
-    by_ino: BTreeMap<u64, Project>,
+    by_ino: HashMap<u64, Project>,
 }
 
 impl Projects {
@@ -43,7 +43,7 @@ impl Projects {
         Projects {
             ino: INO,
             by_name: HashMap::new(),
-            by_ino: BTreeMap::new(),
+            by_ino: HashMap::new(),
         }
     }
 
@@ -55,17 +55,13 @@ impl Projects {
         &mut self,
         name: String,
         path: String,
-        groups: HashSet<u64>,
-        aliases: HashSet<String>,
+        aliases: impl Iterator<Item = String>,
     ) -> u64 {
         self.ino += 1;
 
         self.by_name.insert(name.clone(), self.ino).expect_none("project already exists");
         self.by_ino.insert(self.ino, Project {
-            name,
             path: CString::new(path).unwrap(),
-            groups,
-            aliases: aliases.clone(),
         });
 
         for alias in aliases {
@@ -79,17 +75,8 @@ impl Projects {
  *     │                                    add_alias()                                     │     *
 \*     └────────────────────────────────────────────────────────────────────────────────────┘     */
 
-    pub fn add_alias(&mut self, name: String, ino: u64) {
-        self.by_name.insert(name.clone(), ino).expect_none("project already exists");
-        self.get_project(ino).unwrap().add_alias(name);
-    }
-
-/*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
- *     │                                   get_project()                                    │     *
-\*     └────────────────────────────────────────────────────────────────────────────────────┘     */
-
-    fn get_project(&mut self, ino: u64) -> Option<&mut Project> {
-        self.by_ino.get_mut(&ino)
+    fn add_alias(&mut self, name: String, ino: u64) {
+        self.by_name.insert(name, ino).expect_none("project already exists");
     }
 
 /*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
@@ -150,7 +137,7 @@ impl Projects {
     }
 
 /*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
- *     │                                     getattr()                                      │     *
+ *     │                                       attr()                                       │     *
 \*     └────────────────────────────────────────────────────────────────────────────────────┘     */
 
     fn attr(&self, ino: u64) -> Option<FileAttr> {
@@ -173,7 +160,7 @@ impl Projects {
                 padding: 0,
                 flags: 0,
             })
-        } else if self.by_ino.get(&ino).is_some() {
+        } else if self.by_ino.contains_key(&ino) {
             Some(FileAttr {
                 ino,
                 size: 0,
@@ -204,18 +191,5 @@ impl Projects {
 
 #[derive(Debug)]
 struct Project {
-    name: String,
     path: CString,
-    groups: HashSet<u64>,
-    aliases: HashSet<String>,
-}
-
-impl Project {
-/*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
- *     │                                    add_alias()                                     │     *
-\*     └────────────────────────────────────────────────────────────────────────────────────┘     */
-
-    fn add_alias(&mut self, name: String) {
-        self.aliases.insert(name);
-    }
 }

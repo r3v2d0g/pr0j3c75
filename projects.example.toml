@@ -3,3 +3,9 @@ name = "pr0j3c75"
 path = "/home/r3v2d0g/projects/pr0j3c75"
 groups = ["r3v2d0g"]
 aliases = ["projects"]
+
+[[mirrors]]
+name = "pr0j3c75-debug-build"
+path = "/home/r3v2d0g/projects/pr0j3c75/target/debug/build"
+renaming = "(.+-[1-z0-9]{5})[a-z0-9]+"
+aliases = ["projects-debug-build"]

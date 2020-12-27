@@ -18,6 +18,7 @@
 
 mod config;
 mod groups;
+mod mirrors;
 mod projects;
 
 /* ┌────────────────────────────────────────────────────────────────────────────────────────────┐ *\
@@ -26,6 +27,7 @@ mod projects;
 
 use self::config::Config;
 use self::groups::{INO as GROUPS_INO, STR as GROUPS_STR, Group, Groups};
+use self::mirrors::{INO as MIRRORS_INO, STR as MIRRORS_STR, Mirrors};
 use self::projects::{INO as PROJECTS_INO, STR as PROJECTS_STR, Projects};
 use fuser::{
     FileAttr, FileType,
@@ -34,6 +36,7 @@ use fuser::{
     Request,
 };
 use libc::ENOENT;
+use regex::Regex;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -82,6 +85,7 @@ fn main() {
 pub struct FileSystem {
     groups: Groups,
     projects: Projects,
+    mirrors: Mirrors,
 }
 
 impl FileSystem {
@@ -93,6 +97,7 @@ impl FileSystem {
         FileSystem {
             groups: Groups::new(),
             projects: Projects::new(),
+            mirrors: Mirrors::new(),
         }
     }
 
@@ -108,24 +113,35 @@ impl FileSystem {
  *     │                                   add_project()                                    │     *
 \*     └────────────────────────────────────────────────────────────────────────────────────┘     */
 
-    fn add_project(&mut self, name: String, path: String, groups: &[u64], aliases: &[String]) -> u64 {
+    fn add_project(
+        &mut self,
+        name: String,
+        path: String,
+        groups: impl Iterator<Item = u64>,
+        aliases: &[String],
+    ) {
         let ino = self.projects.add_project(
             name.clone(),
             path,
-            groups.iter().copied().collect(),
-            aliases.iter().cloned().collect(),
+            aliases.iter().cloned(),
         );
 
         for group in groups {
-            let group = self.get_group(*group).expect("unknown group");
+            let group = self.get_group(group).expect("unknown group");
             group.add_project(name.clone(), ino);
 
             for alias in aliases {
                 group.add_alias(alias.clone(), ino);
             }
         }
+    }
 
-        ino
+/*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
+ *     │                                    add_mirror()                                    │     *
+\*     └────────────────────────────────────────────────────────────────────────────────────┘     */
+
+    fn add_mirror(&mut self, name: String, path: String, renaming: Regex, aliases: &[String]) {
+        self.mirrors.add_mirror(name, path, renaming, aliases.iter().cloned());
     }
 
 /*     ┌────────────────────────────────────────────────────────────────────────────────────┐     *\
@@ -161,6 +177,8 @@ impl fuser::Filesystem for FileSystem {
                     flags: 0,
                 },
             );
+        } else if ino & MIRRORS_INO != 0 {
+            self.mirrors.getattr(ino, reply);
         } else if ino & PROJECTS_INO != 0 {
             self.projects.getattr(ino, reply);
         } else if ino & GROUPS_INO != 0 {
@@ -174,12 +192,15 @@ impl fuser::Filesystem for FileSystem {
         let name = name.to_str().unwrap();
         if parent == ROOT_INO {
             match name {
+                MIRRORS_STR => self.mirrors.lookup(parent, name, reply),
                 PROJECTS_STR => self.projects.lookup(parent, name, reply),
                 GROUPS_STR => if let Some(reply) = self.groups.lookup(parent, name, reply) {
                     self.projects.lookup(parent, name, reply);
                 },
                 _ => reply.error(ENOENT),
             }
+        } else if parent & MIRRORS_INO != 0 {
+            self.mirrors.lookup(parent, name, reply);
         } else if parent & PROJECTS_INO != 0 {
             self.projects.lookup(parent, name, reply);
         } else if parent & GROUPS_INO != 0 {
@@ -193,9 +214,10 @@ impl fuser::Filesystem for FileSystem {
 
     fn readdir(&mut self, _: &Request, ino: u64, _: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino == ROOT_INO {
-            const ENTRIES: [(u64, &str); 2] = [
+            const ENTRIES: [(u64, &str); 3] = [
                 (GROUPS_INO, GROUPS_STR),
                 (PROJECTS_INO, PROJECTS_STR),
+                (MIRRORS_INO, MIRRORS_STR),
             ];
 
             for (idx, (ino, name)) in ENTRIES.iter().enumerate().skip(offset as usize) {
@@ -205,6 +227,8 @@ impl fuser::Filesystem for FileSystem {
             }
 
             reply.ok();
+        } else if ino & MIRRORS_INO != 0 {
+            self.mirrors.readdir(ino, offset as usize, reply);
         } else if ino & PROJECTS_INO != 0 {
             self.projects.readdir(ino, offset as usize, reply);
         } else if ino & GROUPS_INO != 0 {
@@ -215,6 +239,12 @@ impl fuser::Filesystem for FileSystem {
     }
 
     fn readlink(&mut self, _: &Request, ino: u64, reply: ReplyData) {
-        self.projects.readlink(ino, reply);
+        if ino & MIRRORS_INO != 0 {
+            self.mirrors.readlink(ino, reply);
+        } else if ino & PROJECTS_INO != 0 {
+            self.projects.readlink(ino, reply);
+        } else {
+            reply.error(ENOENT);
+        }
     }
 }
