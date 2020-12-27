@@ -1,0 +1,18 @@
+[package]
+name = "pr0j3c75"
+description = ""
+version = "0.0.0"
+homepage = "https://github.com/r3v2d0g/pr0j3c75"
+repository = "https://github.com/r3v2d0g/pr0j3c75.git"
+readme = "README.md"
+authors = ["Matthieu Le brazidec (r3v2d0g) <r3v2d0g@jesus.gg>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+env_logger = "0.8"
+fuser = "0.6"
+libc = "0.2"
+pico-args = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.5"
